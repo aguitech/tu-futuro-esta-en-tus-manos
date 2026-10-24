@@ -96,10 +96,38 @@ Rol `stage` **no puede** comandar la experiencia — solo `board` y `op` pueden.
 ## Verificación
 
 ```bash
-python3 tools/e2e.py      # 36/36 comprobaciones contra el WS vivo
+python3 tools/e2e.py      # 36/36 comprobaciones contra el WS real
 php -l <cada .php>
 node --check <cada .js>   # como ESM
 ```
+
+---
+
+## Base de datos
+
+SQLite, schema propio, **sin dependencias**. El `.sqlite` se deriva de
+`db/schema.sql` — nunca se edita a mano.
+
+```bash
+cd db
+python3 init_db.py --reset   # crea la DB desde schema.sql
+python3 seed_demo.py         # 8 participantes de demostración
+python3 queries.py           # reportes
+```
+
+Detalle completo del modelo en **[db/README.md](db/README.md)**.
+
+| Tabla | Qué guarda |
+|---|---|
+| `participantes` | Persona, meta, mensaje, estado, tiempos |
+| `etapas_visitadas` | **Event log**: una fila por etapa del recorrido |
+| `controles_usados` | Los 4 botones del tablero |
+| `telemetria_manos` | Energía de la cámara (etapa 03) |
+| `postcards` | La postal detrás del QR |
+| `eventos` | Bitácora del sistema |
+
+El runtime PHP (`server/lib/SessionStore.php`) escribe en este schema.
+Ruta por defecto `db/portal.sqlite`; sobreescribible con `TF1_DB` o `--db`.
 
 ---
 

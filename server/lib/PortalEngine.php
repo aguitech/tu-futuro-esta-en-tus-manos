@@ -19,6 +19,9 @@ final class PortalEngine
 {
     private PortalState $state;
 
+    /** Timestamp of the last persisted camera telemetry sample. */
+    private float $lastTelemetryAt = 0.0;
+
     public function __construct(
         private WsServer $ws,
         PortalState $state,
@@ -240,6 +243,20 @@ final class PortalEngine
         $this->state->handsOpen   = (bool) ($opts['open'] ?? false);
 
         $this->state->bump();
+
+        // Persist the telemetry, but NOT on every frame: the camera streams
+        // at ~20Hz and writing each frame would thrash the DB during a live
+        // event. One sample every 2 seconds is plenty for the report.
+        $this->lastTelemetryAt = $this->lastTelemetryAt ?? 0.0;
+        if ($this->state->energy > 0 && (microtime(true) - $this->lastTelemetryAt) >= 2.0) {
+            $this->lastTelemetryAt = microtime(true);
+            $this->store->markTelemetry(
+                $this->state->participantId,
+                $this->state->energy,
+                $this->state->handsJoined,
+                $this->state->handsOpen
+            );
+        }
 
         // Light frame — no full state, the screens interpolate locally.
         $this->ws->broadcast([

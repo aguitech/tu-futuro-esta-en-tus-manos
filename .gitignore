@@ -1,7 +1,10 @@
-# SQLite (se regenera solo)
+# SQLite (se regenera con: cd db && python3 init_db.py --reset)
 storage/*.sqlite
 storage/*.sqlite-wal
 storage/*.sqlite-shm
+db/*.sqlite
+db/*.sqlite-wal
+db/*.sqlite-shm
 
 # Logs / temporales
 *.log

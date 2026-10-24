@@ -4,7 +4,20 @@ declare(strict_types=1);
 namespace Portal;
 
 /**
- * SQLite store for sessions and the aggregate metrics the PDF asks for.
+ * SQLite store for the portal.
+ *
+ * Writes into the schema defined in db/schema.sql (the source of truth):
+ *   participantes      → the person going through the flow
+ *   etapas_visitadas  → event log, one row per stage (NOT a state pointer)
+ *   controles_usados  → the 4 board buttons
+ *   telemetria_manos  → camera energy samples
+ *   postcards         → the digital postcard behind the QR
+ *   eventos           → raw system log
+ *
+ * The public API below is what PortalEngine and the api/ endpoints call.
+ * The schema is created by db/init_db.py (python) — this class does NOT
+ * create tables, it only reads/writes. If the file is missing, the PHP
+ * server will report a clear error instead of silently making its own.
  *
  * Metrics tracked (PDF p.12):
  *   Participación → sessions started / completed, per day and hour
@@ -16,73 +29,44 @@ final class SessionStore
 {
     private ?\PDO $pdo = null;
 
+    /** Stage → ordinal, mirrors etapas_visitadas.etapa_num in schema.sql. */
+    private const ETAPA_NUM = [
+        'enter'  => 1,
+        'choose' => 2,
+        'create' => 3,
+        'take'   => 4,
+        'done'   => 5,
+    ];
+
+    /** Board button → visual effect, mirrors controles_usados.efecto. */
+    private const CONTROL_FX = [
+        'save' => 'seed',
+        'plan' => 'constellation',
+        'know' => 'wave',
+        'goal' => 'goal',
+    ];
+
     public function __construct(private string $dbPath)
     {
-        $this->migrate();
+        if (!is_file($this->dbPath)) {
+            throw new \RuntimeException(
+                "No existe la base de datos: {$this->dbPath}\n"
+                . "Créala con:  cd db && python3 init_db.py --reset"
+            );
+        }
     }
 
     private function pdo(): \PDO
     {
         if ($this->pdo === null) {
-            $dir = dirname($this->dbPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0775, true);
-            }
             $this->pdo = new \PDO('sqlite:' . $this->dbPath);
             $this->pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
             $this->pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
-            $this->pdo->exec('PRAGMA journal_mode=WAL');
+            $this->pdo->exec('PRAGMA foreign_keys = ON');
+            $this->pdo->exec('PRAGMA journal_mode = WAL');
             $this->pdo->exec('PRAGMA busy_timeout=4000');
         }
         return $this->pdo;
-    }
-
-    private function migrate(): void
-    {
-        $this->pdo()->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS sessions (
-    id           TEXT PRIMARY KEY,
-    name         TEXT,
-    goal         TEXT,
-    message      TEXT,
-    share_opt_in  INTEGER NOT NULL DEFAULT 0,
-    qr_token     TEXT,
-    started_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at TEXT,
-    duration_ms  INTEGER NOT NULL DEFAULT 0,
-    last_step    TEXT,
-    status       TEXT NOT NULL DEFAULT 'active',
-    steps_seen   TEXT NOT NULL DEFAULT '[]',
-    controls     TEXT NOT NULL DEFAULT '[]',
-    downloads    INTEGER NOT NULL DEFAULT 0,
-    advisor_req  INTEGER NOT NULL DEFAULT 0
-);
-SQL);
-
-        $this->pdo()->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS events (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT,
-    kind       TEXT NOT NULL,
-    detail     TEXT,
-    at         TEXT NOT NULL DEFAULT (datetime('now'))
-);
-SQL);
-
-        $this->pdo()->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS postcards (
-    token       TEXT PRIMARY KEY,
-    session_id  TEXT NOT NULL,
-    goal        TEXT,
-    message     TEXT,
-    scene       TEXT,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    downloaded  INTEGER NOT NULL DEFAULT 0
-);
-SQL);
-
-        $this->pdo()->exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)');
-        $this->pdo()->exec('CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind)');
     }
 
     // ------------------------------------------------------------------
@@ -92,11 +76,19 @@ SQL);
     public function createSession(string $name): string
     {
         $id = 'S' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
+        $folio = 'TF1-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
 
         $stmt = $this->pdo()->prepare(
-            'INSERT INTO sessions (id, name, steps_seen, controls) VALUES (?, ?, ?, ?)'
+            'INSERT INTO participantes (id, folio, nombre, sede, meta_json)
+             VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$id, $name, '[]', '[]']);
+        $stmt->execute([
+            $id,
+            $folio,
+            $name,
+            'GDL',
+            json_encode(['origen' => 'websocket'], JSON_UNESCAPED_UNICODE),
+        ]);
 
         $this->logEvent($id, 'session_started', ['name' => $name]);
 
@@ -109,21 +101,27 @@ SQL);
             return;
         }
 
-        $stmt = $this->pdo()->prepare('SELECT steps_seen, started_at FROM sessions WHERE id = ?');
-        $stmt->execute([$sessionId]);
-        $row = $stmt->fetch();
-
-        if ($row === false) {
+        $num = self::ETAPA_NUM[$step] ?? null;
+        if ($num === null) {
             return;
         }
 
-        $steps = json_decode((string) $row['steps_seen'], true) ?: [];
-        if (!in_array($step, $steps, true)) {
-            $steps[] = $step;
-        }
+        // Close the previous stage so dwell time is measurable.
+        $prev = $this->pdo()->prepare(
+            'UPDATE etapas_visitadas
+             SET terminada_en = datetime(\'now\'),
+                 segundos = CAST((julianday(\'now\') - julianday(iniciada_en)) * 86400 AS INTEGER)
+             WHERE participante_id = ? AND terminada_en IS NULL'
+        );
+        $prev->execute([$sessionId]);
 
-        $up = $this->pdo()->prepare('UPDATE sessions SET steps_seen = ?, last_step = ? WHERE id = ?');
-        $up->execute([json_encode($steps), $step, $sessionId]);
+        // UNIQUE(participante_id, etapa) — do not double-log a stage.
+        $stmt = $this->pdo()->prepare(
+            'INSERT INTO etapas_visitadas (participante_id, etapa, etapa_num)
+             VALUES (?, ?, ?)
+             ON CONFLICT(participante_id, etapa) DO NOTHING'
+        );
+        $stmt->execute([$sessionId, $step, $num]);
 
         $this->logEvent($sessionId, 'step_' . $step);
     }
@@ -134,23 +132,22 @@ SQL);
             return;
         }
 
-        $stmt = $this->pdo()->prepare('SELECT controls FROM sessions WHERE id = ?');
-        $stmt->execute([$sessionId]);
-        $row = $stmt->fetch();
+        $fx = self::CONTROL_FX[$control] ?? $control;
 
-        if ($row === false) {
-            return;
-        }
+        $ord = $this->pdo()->prepare(
+            'SELECT COALESCE(MAX(orden), -1) + 1 FROM controles_usados WHERE participante_id = ?'
+        );
+        $ord->execute([$sessionId]);
+        $orden = (int) $ord->fetchColumn();
 
-        $controls = json_decode((string) $row['controls'], true) ?: [];
-        if (!in_array($control, $controls, true)) {
-            $controls[] = $control;
-        }
+        $stmt = $this->pdo()->prepare(
+            'INSERT INTO controles_usados (participante_id, control, efecto, orden)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(participante_id, control) DO UPDATE SET orden = excluded.orden'
+        );
+        $stmt->execute([$sessionId, $control, $fx, $orden]);
 
-        $up = $this->pdo()->prepare('UPDATE sessions SET controls = ? WHERE id = ?');
-        $up->execute([json_encode($controls), $sessionId]);
-
-        $this->logEvent($sessionId, 'control_' . $control);
+        $this->logEvent($sessionId, 'control_' . $control, ['efecto' => $fx]);
     }
 
     public function setGoal(?string $sessionId, string $goal): void
@@ -158,7 +155,7 @@ SQL);
         if ($sessionId === null) {
             return;
         }
-        $stmt = $this->pdo()->prepare('UPDATE sessions SET goal = ? WHERE id = ?');
+        $stmt = $this->pdo()->prepare('UPDATE participantes SET meta_id = ? WHERE id = ?');
         $stmt->execute([$goal, $sessionId]);
         $this->logEvent($sessionId, 'goal_' . $goal);
     }
@@ -168,7 +165,7 @@ SQL);
         if ($sessionId === null) {
             return;
         }
-        $stmt = $this->pdo()->prepare('UPDATE sessions SET message = ? WHERE id = ?');
+        $stmt = $this->pdo()->prepare('UPDATE participantes SET mensaje = ? WHERE id = ?');
         $stmt->execute([$message, $sessionId]);
     }
 
@@ -177,7 +174,7 @@ SQL);
         if ($sessionId === null) {
             return;
         }
-        $stmt = $this->pdo()->prepare('UPDATE sessions SET share_opt_in = ? WHERE id = ?');
+        $stmt = $this->pdo()->prepare('UPDATE participantes SET compartir = ? WHERE id = ?');
         $stmt->execute([$on ? 1 : 0, $sessionId]);
         $this->logEvent($sessionId, $on ? 'share_optin' : 'share_declined');
     }
@@ -189,29 +186,55 @@ SQL);
         }
 
         $stmt = $this->pdo()->prepare(
-            'UPDATE sessions
-             SET status = ?, completed_at = datetime(\'now\'),
-                 duration_ms = CAST((julianday(\'now\') - julianday(started_at)) * 86400000 AS INTEGER)
-             WHERE id = ?'
+            "UPDATE participantes
+             SET estado = 'completado',
+                 completada_en = datetime('now'),
+                 duracion_ms = CAST((julianday('now') - julianday(iniciada_en)) * 86400000 AS INTEGER),
+                 meta_id = COALESCE(?, meta_id)
+             WHERE id = ?"
         );
-        $stmt->execute(['completed', $sessionId]);
+        $stmt->execute([$goal, $sessionId]);
 
+        $this->markStep($sessionId, 'done');
         $this->logEvent($sessionId, 'session_completed', ['goal' => $goal]);
+    }
+
+    /** Records a camera energy sample (stage 03 telemetry). */
+    public function markTelemetry(
+        ?string $sessionId,
+        float $energy,
+        bool $handsJoined,
+        bool $handsOpen
+    ): void {
+        $stmt = $this->pdo()->prepare(
+            'INSERT INTO telemetria_manos
+                (participante_id, etapa, energia, manos_juntas, manos_abiertas)
+             VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $sessionId,
+            'create',
+            round($energy, 3),
+            $handsJoined ? 1 : 0,
+            $handsOpen ? 1 : 0,
+        ]);
     }
 
     public function markDownload(string $token): bool
     {
-        $stmt = $this->pdo()->prepare('UPDATE postcards SET downloaded = downloaded + 1 WHERE token = ?');
+        $stmt = $this->pdo()->prepare(
+            'UPDATE postcards SET descargada = descargada + 1 WHERE token = ?'
+        );
         $stmt->execute([$token]);
 
-        $row = $this->pdo()->prepare('SELECT session_id FROM postcards WHERE token = ?');
+        $row = $this->pdo()->prepare('SELECT participante_id FROM postcards WHERE token = ?');
         $row->execute([$token]);
         $r = $row->fetch();
 
         if ($r !== false) {
-            $u = $this->pdo()->prepare('UPDATE sessions SET downloads = downloads + 1 WHERE id = ?');
-            $u->execute([$r['session_id']]);
-            $this->logEvent($r['session_id'], 'download');
+            $u = $this->pdo()->prepare('UPDATE participantes SET descargas = descargas + 1 WHERE id = ?');
+            $u->execute([$r['participante_id']]);
+            $this->logEvent($r['participante_id'], 'download');
         }
 
         return $stmt->rowCount() > 0;
@@ -219,17 +242,21 @@ SQL);
 
     public function markAdvisorRequest(string $token): bool
     {
-        $stmt = $this->pdo()->prepare('SELECT session_id FROM postcards WHERE token = ?');
-        $stmt->execute([$token]);
-        $r = $stmt->fetch();
+        $row = $this->pdo()->prepare('SELECT participante_id FROM postcards WHERE token = ?');
+        $row->execute([$token]);
+        $r = $row->fetch();
 
         if ($r === false) {
             return false;
         }
 
-        $u = $this->pdo()->prepare('UPDATE sessions SET advisor_req = advisor_req + 1 WHERE id = ?');
-        $u->execute([$r['session_id']]);
-        $this->logEvent($r['session_id'], 'advisor_request');
+        $u = $this->pdo()->prepare('UPDATE participantes SET asesor = asesor + 1 WHERE id = ?');
+        $u->execute([$r['participante_id']]);
+
+        $p = $this->pdo()->prepare('UPDATE postcards SET advisor = advisor + 1 WHERE token = ?');
+        $p->execute([$token]);
+
+        $this->logEvent($r['participante_id'], 'advisor_request');
 
         return true;
     }
@@ -243,7 +270,8 @@ SQL);
         $token = 'TF' . strtoupper(bin2hex(random_bytes(8)));
 
         $stmt = $this->pdo()->prepare(
-            'INSERT INTO postcards (token, session_id, message) VALUES (?, ?, ?)
+            'INSERT INTO postcards (token, participante_id, mensaje)
+             VALUES (?, ?, ?)
              ON CONFLICT(token) DO NOTHING'
         );
         $stmt->execute([$token, $sessionId, 'Hoy comienzo a construir mi futuro']);
@@ -254,9 +282,10 @@ SQL);
     public function postcard(string $token): ?array
     {
         $stmt = $this->pdo()->prepare(
-            'SELECT p.*, s.name, s.goal FROM postcards p
-             LEFT JOIN sessions s ON s.id = p.session_id
-             WHERE p.token = ?'
+            'SELECT pc.*, pa.nombre AS name, pa.meta_id AS goal, pa.folio
+             FROM postcards pc
+             LEFT JOIN participantes pa ON pa.id = pc.participante_id
+             WHERE pc.token = ?'
         );
         $stmt->execute([$token]);
         $row = $stmt->fetch();
@@ -267,7 +296,7 @@ SQL);
     public function updatePostcard(string $token, string $goal, string $message): bool
     {
         $stmt = $this->pdo()->prepare(
-            'UPDATE postcards SET goal = ?, message = ? WHERE token = ?'
+            'UPDATE postcards SET meta_id = ?, mensaje = ? WHERE token = ?'
         );
         $stmt->execute([$goal, $message, $token]);
         return $stmt->rowCount() > 0;
@@ -280,7 +309,7 @@ SQL);
     public function logEvent(?string $sessionId, string $kind, array $detail = []): void
     {
         $stmt = $this->pdo()->prepare(
-            'INSERT INTO events (session_id, kind, detail) VALUES (?, ?, ?)'
+            'INSERT INTO eventos (participante_id, tipo, detalle) VALUES (?, ?, ?)'
         );
         $stmt->execute([
             $sessionId,
@@ -297,14 +326,14 @@ SQL);
     {
         $pdo = $this->pdo();
 
-        $started   = (int) $pdo->query('SELECT COUNT(*) FROM sessions')->fetchColumn();
-        $completed = (int) $pdo->query("SELECT COUNT(*) FROM sessions WHERE status='completed'")->fetchColumn();
-        $active    = (int) $pdo->query("SELECT COUNT(*) FROM sessions WHERE status='active'")->fetchColumn();
+        $started   = (int) $pdo->query('SELECT COUNT(*) FROM participantes')->fetchColumn();
+        $completed = (int) $pdo->query("SELECT COUNT(*) FROM participantes WHERE estado='completado'")->fetchColumn();
+        $active    = (int) $pdo->query("SELECT COUNT(*) FROM participantes WHERE estado IN ('activo','parcial')")->fetchColumn();
 
         // Median duration (SQLite has no median; compute in PHP).
         $durations = $pdo->query(
-            'SELECT duration_ms FROM sessions WHERE status = \'completed\' AND duration_ms > 0
-             ORDER BY duration_ms'
+            'SELECT duracion_ms FROM participantes WHERE estado = \'completado\' AND duracion_ms > 0
+             ORDER BY duracion_ms'
         )->fetchAll(\PDO::FETCH_COLUMN);
 
         $median = 0;
@@ -317,37 +346,39 @@ SQL);
 
         // Per-step drop-off: how many sessions reached each step.
         $stepRows = $pdo->query(
-            "SELECT last_step, COUNT(*) AS n FROM sessions GROUP BY last_step"
+            'SELECT etapa, COUNT(DISTINCT participante_id) AS n
+             FROM etapas_visitadas GROUP BY etapa'
         )->fetchAll();
 
         $byStep = ['enter' => 0, 'choose' => 0, 'create' => 0, 'take' => 0, 'done' => 0];
         foreach ($stepRows as $r) {
-            $byStep[(string) $r['last_step']] = (int) $r['n'];
+            $byStep[(string) $r['etapa']] = (int) $r['n'];
         }
 
         // Goals chosen (aggregate only — never individual).
         $goalRows = $pdo->query(
-            'SELECT goal, COUNT(*) AS n FROM sessions WHERE goal IS NOT NULL GROUP BY goal ORDER BY n DESC'
+            'SELECT meta_id, COUNT(*) AS n FROM participantes
+             WHERE meta_id IS NOT NULL GROUP BY meta_id ORDER BY n DESC'
         )->fetchAll();
 
         // Controls used (aggregate only).
-        $ctrlRows = $pdo->query('SELECT controls FROM sessions')->fetchAll(\PDO::FETCH_COLUMN);
+        $ctrlRows = $pdo->query(
+            'SELECT control, COUNT(DISTINCT participante_id) AS n FROM controles_usados GROUP BY control'
+        )->fetchAll();
         $ctrlCount = [];
-        foreach ($ctrlRows as $json) {
-            foreach ((json_decode((string) $json, true) ?: []) as $c) {
-                $ctrlCount[$c] = ($ctrlCount[$c] ?? 0) + 1;
-            }
+        foreach ($ctrlRows as $r) {
+            $ctrlCount[(string) $r['control']] = (int) $r['n'];
         }
         arsort($ctrlCount);
 
         // Continuity.
-        $downloads = (int) $pdo->query('SELECT COALESCE(SUM(downloads),0) FROM sessions')->fetchColumn();
-        $advisor   = (int) $pdo->query('SELECT COALESCE(SUM(advisor_req),0) FROM sessions')->fetchColumn();
+        $downloads = (int) $pdo->query('SELECT COALESCE(SUM(descargas),0) FROM participantes')->fetchColumn();
+        $advisor   = (int) $pdo->query('SELECT COALESCE(SUM(asesor),0) FROM participantes')->fetchColumn();
 
         // Per-hour capacity (the PDF's 24/hour theoretical figure).
         $perHour = $pdo->query(
-            "SELECT strftime('%H', started_at) AS h, COUNT(*) AS n
-             FROM sessions GROUP BY h ORDER BY h"
+            "SELECT strftime('%H', iniciada_en) AS h, COUNT(*) AS n
+             FROM participantes GROUP BY h ORDER BY h"
         )->fetchAll();
 
         $peakHour = null;
@@ -359,9 +390,9 @@ SQL);
             }
         }
 
-        // Technical failures — logged as events with kind 'error_*'.
+        // Technical failures — logged as events with type 'error_*'.
         $failures = (int) $pdo->query(
-            "SELECT COUNT(*) FROM events WHERE kind LIKE 'error_%'"
+            "SELECT COUNT(*) FROM eventos WHERE tipo LIKE 'error_%'"
         )->fetchColumn();
 
         return [
@@ -385,7 +416,7 @@ SQL);
             ],
             'interes' => [
                 'metas_elegidas'  => array_map(
-                    static fn(array $r): array => ['meta' => $r['goal'], 'total' => (int) $r['n']],
+                    static fn(array $r): array => ['meta' => $r['meta_id'], 'total' => (int) $r['n']],
                     $goalRows
                 ),
                 'controles_usados'=> array_map(
@@ -406,8 +437,10 @@ SQL);
     {
         $limit = max(1, min(200, $limit));
         $stmt = $this->pdo()->prepare(
-            "SELECT id, name, goal, status, duration_ms, started_at, completed_at, downloads
-             FROM sessions ORDER BY started_at DESC LIMIT {$limit}"
+            "SELECT id, folio, nombre AS name, meta_id AS goal, estado AS status,
+                    duracion_ms AS duration_ms, iniciada_en AS started_at,
+                    completada_en AS completed_at, descargas AS downloads
+             FROM participantes ORDER BY iniciada_en DESC LIMIT {$limit}"
         );
         $stmt->execute();
         return $stmt->fetchAll();

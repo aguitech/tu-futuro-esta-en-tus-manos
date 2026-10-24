@@ -66,5 +66,7 @@ function tf1_db_path(): string
     if (is_string($env) && $env !== '') {
         return $env;
     }
-    return dirname(__DIR__) . '/storage/portal.sqlite';
+    // The schema lives in db/schema.sql; the file is created by
+    // db/init_db.py (python3 init_db.py --reset).
+    return dirname(__DIR__) . '/db/portal.sqlite';
 }

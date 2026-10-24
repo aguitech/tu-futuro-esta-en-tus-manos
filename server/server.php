@@ -27,7 +27,7 @@ $opts = getopt('', ['host::', 'port::', 'db::', 'hz::']);
 
 $host   = (string) ($opts['host'] ?? getenv('TF1_HOST') ?: '0.0.0.0');
 $port   = (int)    ($opts['port'] ?? getenv('TF1_PORT') ?: 8790);
-$dbPath = (string) ($opts['db']   ?? getenv('TF1_DB')   ?: dirname(__DIR__) . '/storage/portal.sqlite');
+$dbPath = (string) ($opts['db']   ?? getenv('TF1_DB')   ?: dirname(__DIR__) . '/db/portal.sqlite');
 $tickHz = (int)    ($opts['hz']   ?? getenv('TF1_HZ')   ?: 20);
 
 $store  = new SessionStore($dbPath);
