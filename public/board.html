@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Afore Coppel · Tablero Touch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/board.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header class="head">
+    <div class="brand">AFORE COPPEL · TU FUTURO ESTÁ EN TUS MANOS</div>
+    <div class="head-right">
+      <div class="step-badge">
+        <span class="n" id="stepNum">—</span>
+        <span id="stepName">Esperando</span>
+      </div>
+      <span class="chip" id="chipWs" data-on="0">WS</span>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Left: the 4 controls -->
+    <section class="panel">
+      <h2>
+        <span>Controles del tablero</span>
+        <span id="participantName">—</span>
+      </h2>
+      <div class="controls" id="controls"></div>
+
+      <div class="message-box">
+        <input type="text" id="msgInput" maxlength="80"
+               placeholder="Tu mensaje personal para la postal…"
+               value="Hoy comienzo a construir mi futuro">
+        <button class="mini-btn" id="btnMsg">Enviar</button>
+        <button class="mini-btn" id="btnShare">Compartir: Sí</button>
+      </div>
+    </section>
+
+    <!-- Right: goals + actions -->
+    <section class="panel">
+      <h2><span>Elige tu meta</span></h2>
+      <div class="goals" id="goals"></div>
+
+      <div class="message-box" style="flex-wrap:wrap">
+        <button class="mini-btn primary" id="btnEnter">Invitar participante</button>
+        <button class="mini-btn" id="btnCreate">Ir a Crear</button>
+        <button class="mini-btn" id="btnTake">Cerrar y mostrar QR</button>
+        <button class="mini-btn" id="btnNext">Siguiente persona</button>
+        <button class="mini-btn" id="btnSkip">Adelantar timer</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="foot">
+    <div class="foot-left">
+      <div class="timer-wrap" id="timerWrap">
+        <span class="timer-val" id="timerVal">—</span>
+        <span class="timer-bar"><i id="timerBar" style="width:100%"></i></span>
+      </div>
+      <div class="energy-mini">
+        <span>Energía</span>
+        <span class="bar"><i id="energyBar" style="width:0%"></i></span>
+      </div>
+    </div>
+    <div class="foot-left">
+      <span class="chip" id="chipTrack" data-on="0">Tracking</span>
+      <span class="chip" id="chipCount">0 sesiones</span>
+    </div>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="assets/board.js?v=1"></script>
+</body>
+</html>

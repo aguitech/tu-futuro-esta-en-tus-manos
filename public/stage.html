@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Afore Coppel · Tu futuro está en tus manos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/stage.css">
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="brand">AFORE COPPEL</div>
+    <div class="step-pill">
+      <span class="n" id="stepNum">—</span>
+      <span class="t" id="stepName">Esperando</span>
+      <span class="step-timer"><i id="stepBar" style="width:100%"></i></span>
+    </div>
+  </header>
+
+  <!-- Camera + effects -->
+  <div class="viewport">
+    <video id="cam" playsinline muted autoplay></video>
+    <canvas id="fx"></canvas>
+  </div>
+
+  <!-- Centre content -->
+  <main class="centre" id="centre">
+    <div class="idle-card" id="viewIdle">
+      <div class="logo">TU FUTURO<br><span class="a">ESTÁ EN TUS MANOS</span></div>
+      <div class="tag">Portal interactivo de decisiones</div>
+      <div class="wait">Esperando participante…</div>
+    </div>
+
+    <div class="card hidden" id="viewEnter">
+      <div class="kicker">01 · Entra</div>
+      <h1 class="headline">Hola<span id="enterName"></span></h1>
+      <p class="subline">Tu futuro cobra vida. Acércate al tablero y elige tu meta.</p>
+    </div>
+
+    <div class="card hidden" id="viewChoose">
+      <div class="kicker">02 · Elige</div>
+      <h1 class="headline">¿Cuál es tu meta?</h1>
+      <p class="subline">Elige en el tablero touch: viajar, aprender o disfrutar tu tiempo.</p>
+    </div>
+
+    <div class="card hidden" id="viewCreate">
+      <div class="kicker">03 · Crea</div>
+      <h1 class="headline" id="createTitle">Junta tus manos</h1>
+      <p class="subline" id="createSub">Activa tu futuro. La energía sigue tus movimientos.</p>
+      <div class="instruction">
+        <svg class="hand-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+          <circle cx="32" cy="32" r="30" stroke="#FFD52A" stroke-width="2" opacity=".35"/>
+          <circle cx="32" cy="32" r="22" stroke="#FFD52A" stroke-width="1.5" opacity=".55"
+                  stroke-dasharray="5 6"/>
+          <circle cx="32" cy="32" r="11" fill="#FFD52A" opacity=".22"/>
+          <circle cx="32" cy="32" r="5" fill="#FFD52A"/>
+        </svg>
+        <div class="energy-bar"><i id="energyBar" style="width:0%"></i></div>
+        <p class="subline" id="createHint" style="margin:0">Mueve tus manos para dirigir la energía</p>
+      </div>
+    </div>
+
+    <div class="card hidden" id="viewTake">
+      <div class="kicker">04 · Llévatelo</div>
+      <h1 class="headline" id="takeTitle">Hoy comienzo a construir mi futuro</h1>
+      <p class="subline">Escanea y guarda tu recuerdo. Compartir es opcional.</p>
+    </div>
+
+    <!-- Take-away postcard -->
+    <div class="takeaway hidden" id="viewTakeaway">
+      <span class="goal-badge" id="taGoal">MI META</span>
+      <div class="quote" id="taQuote">"Hoy comienzo a construir mi futuro"</div>
+      <canvas class="qr" id="qrCanvas"></canvas>
+      <div class="hint">Escanea para descargar tu postal</div>
+    </div>
+  </main>
+
+  <!-- Participant -->
+  <footer class="participant hidden" id="participantBar">
+    <div class="who">
+      <span class="nm" id="pName">—</span>
+      <span class="meta" id="pMeta">GUADALAJARA</span>
+    </div>
+  </footer>
+
+  <!-- Status -->
+  <div class="status">
+    <span class="chip" id="chipWs" data-on="0">WS</span>
+    <span class="chip" id="chipCam" data-on="0">CÁMARA</span>
+    <span class="chip" id="chipTrack" data-on="0">TRACKING</span>
+  </div>
+</div>
+
+<script type="module" src="assets/stage.js?v=1"></script>
+</body>
+</html>

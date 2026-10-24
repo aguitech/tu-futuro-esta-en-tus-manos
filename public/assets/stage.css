@@ -1,0 +1,381 @@
+/* ============================================================
+   "Tu futuro está en tus manos" · Pantalla principal 65"
+   Afore Coppel — Guadalajara
+
+   Green screen por defecto (chroma key). Añade ?bg=dark para
+   el modo de control en monitor. La cámara + detección de manos
+   viven en esta pantalla (es donde está el sensor).
+   ============================================================ */
+
+:root {
+  /* Paleta extraída de los píxeles reales del PDF (no inventada) */
+  --navy-deep:  #010D27;
+  --navy:       #011538;
+  --navy-mid:   #071B3D;
+  --gold:       #FFD52A;   /* amarillo Afore */
+  --gold-soft:  #F7C85A;
+  --white:      #FFFFFF;
+  --paper:      #F6F8FC;
+  --blue:       #1689E5;
+  --sky:        #4DA3FF;
+  --coral:      #FF8A5B;
+
+  --font: "Montserrat", "Inter", system-ui, -apple-system, sans-serif;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #00B140;                 /* chroma key green */
+  font-family: var(--font);
+  color: var(--white);
+  -webkit-font-smoothing: antialiased;
+}
+
+body[data-bg="dark"] { background: var(--navy); }
+
+/* ---- Stage layout --------------------------------------------------- */
+.stage {
+  position: relative;
+  width: 100vw; height: 100vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+}
+
+/* The camera feed + particle canvas are a BACKGROUND LAYER behind the
+   whole stage, not a grid row. They are taken out of the flow with
+   absolute positioning; otherwise `grid-row: 1 / -1` on .viewport spawns
+   implicit rows and collapses the stage to zero height. */
+.viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+#cam {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);           /* mirror — participants expect it */
+  opacity: .92;
+}
+
+#fx {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* A soft navy vignette keeps the text readable over the camera. */
+.viewport::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 45%, transparent 28%, rgba(1,13,39,.72) 100%),
+    linear-gradient(180deg, rgba(1,13,39,.72) 0%, transparent 22%, transparent 74%, rgba(1,13,39,.82) 100%);
+}
+
+/* ---- Top bar -------------------------------------------------------- */
+.topbar {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(18px, 2.4vw, 46px) clamp(24px, 3vw, 60px);
+  pointer-events: none;
+}
+
+.brand {
+  font-size: clamp(15px, 1.5vw, 28px);
+  font-weight: 900;
+  letter-spacing: .18em;
+  color: var(--gold);
+  text-shadow: 0 2px 14px rgba(0,0,0,.75);
+}
+
+.step-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 22px;
+  border-radius: 99px;
+  background: rgba(1,13,39,.62);
+  border: 1px solid rgba(255,213,42,.28);
+  backdrop-filter: blur(8px);
+  font-size: clamp(10px, .95vw, 15px);
+  font-weight: 800;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+.step-pill .n {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.step-pill .t { color: rgba(255,255,255,.72); }
+
+.step-timer {
+  width: clamp(74px, 8vw, 120px);
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255,255,255,.16);
+  overflow: hidden;
+}
+.step-timer i {
+  display: block; height: 100%; width: 100%;
+  background: linear-gradient(90deg, var(--gold), var(--gold-soft));
+  transition: width .12s linear;
+}
+
+/* ---- Centre content ------------------------------------------------- */
+
+/* The stage shows ONE panel at a time. Every panel is a direct grid child
+   of .centre, so without this rule they all stack vertically and blow the
+   layout up to several thousand pixels tall. */
+.hidden {
+  display: none !important;
+}
+
+.centre {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  padding: 0 clamp(24px, 4vw, 80px);
+  pointer-events: none;
+  text-align: center;
+}
+
+.card {
+  max-width: 1200px;
+  animation: cardIn .6s var(--ease) both;
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(26px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.kicker {
+  font-size: clamp(11px, 1.1vw, 19px);
+  font-weight: 900;
+  letter-spacing: .42em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 16px;
+  text-shadow: 0 2px 16px rgba(0,0,0,.8);
+}
+
+.headline {
+  font-size: clamp(32px, 5.2vw, 96px);
+  font-weight: 900;
+  line-height: 1.02;
+  letter-spacing: -.03em;
+  margin: 0;
+  text-shadow: 0 4px 34px rgba(0,0,0,.85), 0 2px 0 rgba(1,13,39,.9);
+}
+
+.subline {
+  margin-top: 18px;
+  font-size: clamp(14px, 1.6vw, 27px);
+  font-weight: 500;
+  line-height: 1.4;
+  color: rgba(255,255,255,.88);
+  text-shadow: 0 2px 14px rgba(0,0,0,.85);
+}
+
+/* Instruction beat — the big "JUNTA TUS MANOS" moment */
+.instruction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+.hand-icon {
+  width: clamp(90px, 11vw, 190px);
+  height: clamp(90px, 11vw, 190px);
+  animation: handPulse 1.7s ease-in-out infinite;
+}
+@keyframes handPulse {
+  0%, 100% { transform: scale(1);   filter: drop-shadow(0 0 22px rgba(255,213,42,.5)); }
+  50%      { transform: scale(1.11); filter: drop-shadow(0 0 46px rgba(255,213,42,.95)); }
+}
+
+.energy-bar {
+  width: clamp(200px, 26vw, 420px);
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(255,255,255,.16);
+  overflow: hidden;
+  box-shadow: 0 0 22px rgba(0,0,0,.5);
+}
+.energy-bar i {
+  display: block; height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--gold-soft), var(--gold), #fff);
+  box-shadow: 0 0 18px rgba(255,213,42,.85);
+  transition: width .1s linear;
+}
+
+/* ---- Participant name ------------------------------------------------ */
+.participant {
+  position: relative;
+  z-index: 3;
+  padding: 0 clamp(24px, 3vw, 60px) clamp(22px, 2.6vw, 50px);
+  text-align: center;
+  pointer-events: none;
+}
+.participant .who {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 28px;
+  border-radius: 99px;
+  background: rgba(1,13,39,.6);
+  border: 1px solid rgba(255,213,42,.22);
+  backdrop-filter: blur(8px);
+}
+.participant .who .nm {
+  font-size: clamp(15px, 1.7vw, 30px);
+  font-weight: 800;
+}
+.participant .who .meta {
+  font-size: clamp(10px, .95vw, 15px);
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+/* ---- Take-away / postcard ------------------------------------------- */
+.takeaway {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  gap: 22px;
+  padding: clamp(22px, 3vw, 52px);
+  background: rgba(1,13,39,.82);
+  backdrop-filter: blur(18px);
+  border-radius: 26px;
+  border: 1px solid rgba(255,213,42,.3);
+  box-shadow: 0 30px 90px rgba(0,0,0,.7);
+  max-width: 760px;
+  animation: cardIn .55s var(--ease) both;
+}
+.takeaway .quote {
+  font-size: clamp(19px, 2.3vw, 42px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--gold);
+  font-style: italic;
+}
+.takeaway .goal-badge {
+  padding: 8px 22px;
+  border-radius: 99px;
+  background: rgba(255,213,42,.14);
+  border: 1px solid rgba(255,213,42,.4);
+  font-size: clamp(11px, 1vw, 16px);
+  font-weight: 900;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+.takeaway .qr {
+  width: clamp(130px, 15vw, 230px);
+  height: clamp(130px, 15vw, 230px);
+  background: #fff;
+  padding: 12px;
+  border-radius: 16px;
+}
+.takeaway .hint {
+  font-size: clamp(11px, 1.05vw, 17px);
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.72);
+}
+
+/* ---- Idle / attract -------------------------------------------------- */
+.idle-card {
+  text-align: center;
+}
+.idle-card .logo {
+  font-size: clamp(40px, 7vw, 128px);
+  font-weight: 900;
+  letter-spacing: -.04em;
+  line-height: .98;
+  text-shadow: 0 6px 40px rgba(0,0,0,.9);
+}
+.idle-card .logo .a { color: var(--gold); }
+.idle-card .tag {
+  margin-top: 20px;
+  font-size: clamp(13px, 1.5vw, 27px);
+  font-weight: 800;
+  letter-spacing: .34em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.9);
+  text-shadow: 0 2px 14px rgba(0,0,0,.8);
+}
+.idle-card .wait {
+  margin-top: 34px;
+  font-size: clamp(12px, 1.2vw, 21px);
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: var(--gold);
+  animation: blink 2.2s ease-in-out infinite;
+}
+@keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .28 } }
+
+/* ---- Connection + camera status -------------------------------------- */
+.status {
+  position: absolute;
+  right: clamp(16px, 1.8vw, 34px);
+  bottom: clamp(16px, 1.8vw, 34px);
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 99px;
+  background: rgba(1,13,39,.62);
+  border: 1px solid rgba(255,255,255,.12);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.6);
+}
+.chip::before {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #6a7a94;
+}
+.chip[data-on="1"] { color: var(--gold); border-color: rgba(255,213,42,.35); }
+.chip[data-on="1"]::before {
+  background: var(--gold);
+  box-shadow: 0 0 9px var(--gold);
+  animation: blink 1.8s ease-in-out infinite;
+}
+.chip[data-on="0"] { color: #FF6B7A; border-color: rgba(255,107,122,.35); }
+.chip[data-on="0"]::before { background: #FF6B7A; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

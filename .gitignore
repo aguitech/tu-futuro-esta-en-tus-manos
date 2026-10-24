@@ -1,0 +1,16 @@
+# SQLite (se regenera solo)
+storage/*.sqlite
+storage/*.sqlite-wal
+storage/*.sqlite-shm
+
+# Logs / temporales
+*.log
+*.pid
+__pycache__/
+*.pyc
+
+# Sistema
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
